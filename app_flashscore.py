@@ -200,16 +200,25 @@ def match_fixtures(
     """
     results = []
 
-    # Pre-normalise FS team names
+    def to_iso_date(val) -> str:
+        """Normalise any date format → YYYY-MM-DD string."""
+        s = str(val).strip()[:10]
+        try:
+            return pd.to_datetime(s, dayfirst=False).strftime("%Y-%m-%d")
+        except Exception:
+            return s
+
+    # Pre-normalise FS team names AND dates
     fs_df = fs_df.copy()
-    fs_df["_home_norm"] = fs_df["home_team"].apply(lambda x: normalize_name(x, team_map))
-    fs_df["_away_norm"] = fs_df["away_team"].apply(lambda x: normalize_name(x, team_map))
+    fs_df["_home_norm"]   = fs_df["home_team"].apply(lambda x: normalize_name(x, team_map))
+    fs_df["_away_norm"]   = fs_df["away_team"].apply(lambda x: normalize_name(x, team_map))
+    fs_df["_date_iso"]    = fs_df["match_date"].apply(to_iso_date)
 
     for _, db_row in db_df.iterrows():
-        comp_id   = int(db_row.get("competition_id", -1))
-        db_home   = str(db_row.get("home_team", ""))
-        db_away   = str(db_row.get("away_team", ""))
-        db_date   = str(db_row.get("match_date", ""))[:10]
+        comp_id    = int(db_row.get("competition_id", -1))
+        db_home    = str(db_row.get("home_team", ""))
+        db_away    = str(db_row.get("away_team", ""))
+        db_date    = to_iso_date(db_row.get("match_date", ""))
         db_kickoff = str(db_row.get("kick_off_time", ""))[:5]  # HH:MM
 
         # Get allowed flashscore tournament ids for this competition
@@ -218,11 +227,11 @@ def match_fixtures(
             results.append(_no_match_row(db_row, reason="No FS mapping"))
             continue
 
-        # Filter FS pool: tournament_id AND date
+        # Filter FS pool: tournament_id AND date (both normalised to YYYY-MM-DD)
         # ⚠️ Per-row scoping: only use tournament IDs linked to THIS competition
         pool = fs_df[
             fs_df["tournament_id"].isin(allowed_fs_ids) &
-            (fs_df["match_date"] == db_date)
+            (fs_df["_date_iso"] == db_date)
         ]
 
         if pool.empty:
@@ -400,6 +409,11 @@ if db_file and fs_file:
             st.stop()
         comp_to_fs_ids = load_mapping_sheet()
         team_map       = load_team_map()
+
+    # ── Normalise column names ─────────────────────────────────────────────────
+    # Accept 'id' as alias for 'match_id' (DBeaver query may not alias it)
+    if "id" in db_df.columns and "match_id" not in db_df.columns:
+        db_df = db_df.rename(columns={"id": "match_id"})
 
     # ── Validate columns ──────────────────────────────────────────────────────
     DB_REQUIRED = {"match_id", "competition_id", "home_team", "away_team", "match_date", "kick_off_time"}
