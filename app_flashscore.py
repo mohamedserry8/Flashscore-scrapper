@@ -375,10 +375,29 @@ with col2:
     fs_file = st.file_uploader("Upload Flashscore CSV", type="csv", key="fs_upload")
 
 # ─── Run comparison ───────────────────────────────────────────────────────────
+def read_csv_safe(file):
+    """Try multiple encodings to handle DBeaver/Excel exports."""
+    raw = file.read()
+    for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"]:
+        try:
+            import io
+            return pd.read_csv(io.BytesIO(raw), encoding=enc)
+        except (UnicodeDecodeError, Exception):
+            continue
+    raise ValueError(f"تعذّر قراءة الملف — جرّب تصدّره من DBeaver بـ UTF-8")
+
 if db_file and fs_file:
     with st.spinner("Loading data…"):
-        db_df = pd.read_csv(db_file)
-        fs_df = pd.read_csv(fs_file)
+        try:
+            db_df = read_csv_safe(db_file)
+        except ValueError as e:
+            st.error(f"❌ DB CSV: {e}")
+            st.stop()
+        try:
+            fs_df = read_csv_safe(fs_file)
+        except ValueError as e:
+            st.error(f"❌ Flashscore CSV: {e}")
+            st.stop()
         comp_to_fs_ids = load_mapping_sheet()
         team_map       = load_team_map()
 
